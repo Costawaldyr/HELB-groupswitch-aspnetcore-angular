@@ -7,7 +7,7 @@ on:
     branches: ['main']
 
 env:
-  BACKEND_SOLUTION: GroupSwitch/2 backend/GroupSwitch.sln
+  BACKEND_SOLUTION: GroupSwitch/GroupSwitch.sln
   FRONTEND_FOLDER: GroupSwitch/1 frontend
 
 jobs:
