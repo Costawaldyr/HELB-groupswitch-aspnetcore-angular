@@ -33,5 +33,6 @@ jobs:
         working-directory: ${{ env.FRONTEND_FOLDER }}
       - run: npm run build
         working-directory: ${{ env.FRONTEND_FOLDER }}
-      - run: npm test -- --watch=false --browsers=ChromeHeadless
+      - name: Tests Angular
+        run: npm test -- --watch=false
         working-directory: ${{ env.FRONTEND_FOLDER }}
