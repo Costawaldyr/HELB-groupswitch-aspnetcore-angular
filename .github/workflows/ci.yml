@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: ['main']
 
+env:
+  BACKEND_SOLUTION: GroupSwitch/2 backend/GroupSwitch.sln
+  FRONTEND_FOLDER: GroupSwitch/1 frontend
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -14,21 +18,21 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - run: dotnet restore backend/GroupSwitch.sln
-      - run: dotnet build backend/GroupSwitch.sln --no-restore -c Release
-      - run: dotnet test backend/GroupSwitch.sln --no-build -c Release --filter "Category!=Online"
+      - run: dotnet restore "${{ env.BACKEND_SOLUTION }}"
+      - run: dotnet build "${{ env.BACKEND_SOLUTION }}" --no-restore -c Release
+      - run: dotnet test "${{ env.BACKEND_SOLUTION }}" --no-build -c Release --filter "Category!=Online"
 
   frontend:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('frontend/package.json') != '' }}
+    if: ${{ hashFiles('GroupSwitch/1 frontend/package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
-        working-directory: frontend
+        working-directory: ${{ env.FRONTEND_FOLDER }}
       - run: npm run build
-        working-directory: frontend
+        working-directory: ${{ env.FRONTEND_FOLDER }}
       - run: npm test -- --watch=false --browsers=ChromeHeadless
-        working-directory: frontend
+        working-directory: ${{ env.FRONTEND_FOLDER }}
