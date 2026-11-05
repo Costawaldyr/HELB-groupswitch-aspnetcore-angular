@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ['feature/**']
+  pull_request:
+    branches: ['main']
+
+env:
+  BACKEND_SOLUTION: GroupSwitch/GroupSwitch.sln
+  FRONTEND_FOLDER: GroupSwitch/1 frontend
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore "${{ env.BACKEND_SOLUTION }}"
+      - run: dotnet build "${{ env.BACKEND_SOLUTION }}" --no-restore -c Release
+      - run: dotnet test "${{ env.BACKEND_SOLUTION }}" --no-build -c Release --filter "Category!=Online"
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: ${{ env.FRONTEND_FOLDER }}
+      - run: npm run build
+        working-directory: ${{ env.FRONTEND_FOLDER }}
+      - name: Tests Angular
+        run: npm test -- --watch=false
+        working-directory: ${{ env.FRONTEND_FOLDER }}
