@@ -21,7 +21,7 @@ namespace GroupSwitch.Business
             services.AddSingleton<ISessionBuilder, SessionBuilder>();
             services.AddSingleton<IGroupListParser, GroupListParser>();
             services.AddSingleton<IWeekScheduleParser, WeekScheduleParser>();
-            services.AddSingleton<IWeekResponseConverterService, WeekResponseConverterService>();
+            services.AddSingleton<IWeekAssessmentService, WeekAssessmentService>();
             services.AddSingleton<IGroupScheduleCollectorService, GroupScheduleCollectorService>();
             services.AddSingleton<IImportQueueService, ImportQueueService>();
             services.AddSingleton<IValidateOptions<HyperplanningSettings>, HyperplanningSettingsValidator>();

@@ -21,7 +21,8 @@ namespace GroupSwitch.Tests.Scraping.Services
 
             return new HyperplanningImportService(
                 scraper,
-                new GroupScheduleCollectorService(TestObjects.NewWeekResponseConverterService()),
+                TestObjects.NewWeekAssessmentService(),
+                new GroupScheduleCollectorService(),
                 new ScheduleRepository(database._dbContext),
                 importRunRepository,
                 new ImportLogService(importRunRepository),
@@ -125,6 +126,54 @@ namespace GroupSwitch.Tests.Scraping.Services
 
             Assert.Equal(24, await database.CountSessionsOfGroupAsync("IODA B3"));
             Assert.Equal(9, await database.CountSessionsOfGroupWeekAsync("IODA B3", 8));
+        }
+
+        [Fact]
+        public async Task Run_InvalidWeek_KeepsItsOldSessionsAndLogsTheStatus()
+        {
+            using var database = new SqliteTestDatabase();
+            var firstService = NewService(database, new FakeHyperplanningScraper(TwoGroupsResponses()));
+            var firstRun = await firstService.StartAsync();
+            await firstService.RunAsync(firstRun.Id, name => true, week => true);
+
+            var brokenWeek8 = "{'nom':'FonctionEmploiDuTemps','donneesSec':{'donnees':{}}}".Replace('\'', '"');
+            var secondService = NewService(database, new FakeHyperplanningScraper(new List<WeekRetrieval>
+            {
+                WeekRetrieval.Succeeded("IODA B3", 8, brokenWeek8),
+                WeekRetrieval.Succeeded("IODA B3", 11, week11Json)
+            }));
+            var secondRun = await secondService.StartAsync();
+
+            await secondService.RunAsync(secondRun.Id, name => true, week => true);
+
+            var saved = await database._dbContext.ImportRuns
+                .Include(importRun => importRun.LogEntriesList)
+                .SingleAsync(importRun => importRun.Id == secondRun.Id);
+
+            Assert.Equal(9, await database.CountSessionsOfGroupWeekAsync("IODA B3", 8));
+            Assert.Contains(saved.LogEntriesList, entry => entry.Level == ImportLogLevels.Error && entry.Message.Contains("Invalid"));
+        }
+
+        [Fact]
+        public async Task Run_VerifiedEmptyWeek_RemovesOnlyItsOwnSessions()
+        {
+            using var database = new SqliteTestDatabase();
+            var firstService = NewService(database, new FakeHyperplanningScraper(TwoGroupsResponses()));
+            var firstRun = await firstService.StartAsync();
+            await firstService.RunAsync(firstRun.Id, name => true, week => true);
+
+            var emptyWeek8 = "{'nom':'FonctionEmploiDuTemps','donneesSec':{'donnees':{'ListeCours':[],'ListeAnnulationsCours':[]}}}".Replace('\'', '"');
+            var secondService = NewService(database, new FakeHyperplanningScraper(new List<WeekRetrieval>
+            {
+                WeekRetrieval.Succeeded("IODA B3", 8, emptyWeek8)
+            }));
+            var secondRun = await secondService.StartAsync();
+
+            await secondService.RunAsync(secondRun.Id, name => true, week => true);
+
+            Assert.Equal(0, await database.CountSessionsOfGroupWeekAsync("IODA B3", 8));
+            Assert.Equal(15, await database.CountSessionsOfGroupWeekAsync("IODA B3", 11));
+            Assert.Equal(15, await database.CountSessionsOfGroupAsync("SI 3"));
         }
 
         [Fact]

@@ -1,4 +1,5 @@
-﻿using GroupSwitch.Business.Scraping.Parsing;
+﻿using GroupSwitch.Business.Scraping.Models;
+using GroupSwitch.Business.Scraping.Parsing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -79,6 +80,22 @@ namespace GroupSwitch.Tests.Scraping.Parsing
             var json = """{"donneesSec":{"donnees":{"ListeCours":[]}}}""";
 
             Assert.Empty(_parser.Parse(json));
+        }
+
+        [Fact]
+        public void Parse_MissingListeCours_ThrowsFormatException()
+        {
+            var json = "{'donneesSec':{'donnees':{}}}".Replace('\'', '"');
+
+            Assert.Throws<HyperplanningFormatException>(() => _parser.Parse(json).ToList());
+        }
+
+        [Fact]
+        public void Parse_CourseWithoutPosition_ThrowsFormatException()
+        {
+            var json = "{'donneesSec':{'donnees':{'ListeCours':[{'G':8,'d':4,'listeC':[]}]}}}".Replace('\'', '"');
+
+            Assert.Throws<HyperplanningFormatException>(() => _parser.Parse(json).ToList());
         }
     }
 }

@@ -1,6 +1,7 @@
 using GroupSwitch.Business.Scraping.Models;
 using GroupSwitch.Business.Scraping.Parsing;
 using GroupSwitch.Business.Scraping.Retrieval;
+using GroupSwitch.Tests.Scraping.TestSupport;
 using Microsoft.Extensions.Options;
 using Xunit.Abstractions;
 
@@ -68,6 +69,18 @@ namespace GroupSwitch.Tests.Scraping.Retrieval
             Assert.NotNull(weekEleven.Json);
             Assert.True(classifier.IsSchedule(weekEleven.Json));
             Assert.NotEmpty(new WeekScheduleParser().Parse(weekEleven.Json));
+
+            var assessmentService = TestObjects.NewWeekAssessmentService();
+            var assessments = retrievals.Select(assessmentService.Assess).ToList();
+
+            foreach (var assessment in assessments)
+            {
+                _output.WriteLine($"Assessment week {assessment.Week} | {assessment.Status} | {assessment.Diagnostic}");
+            }
+
+            Assert.Equal(WeekResponseStatus.CompleteEmpty, assessments.Single(assessment => assessment.Week == 7).Status);
+            Assert.Equal(WeekResponseStatus.Complete, assessments.Single(assessment => assessment.Week == 8).Status);
+            Assert.Equal(WeekResponseStatus.Complete, assessments.Single(assessment => assessment.Week == 11).Status);
         }
 
         private string Describe(string? json)

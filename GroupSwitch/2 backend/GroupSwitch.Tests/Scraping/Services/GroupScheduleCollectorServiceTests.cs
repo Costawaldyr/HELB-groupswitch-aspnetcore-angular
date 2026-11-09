@@ -1,87 +1,84 @@
-﻿using GroupSwitch.Business.Scraping.Interfaces;
-using GroupSwitch.Business.Scraping.Models;
+﻿using GroupSwitch.Business.Scraping.Models;
 using GroupSwitch.Business.Scraping.Services;
-using GroupSwitch.Tests.Scraping.TestSupport;
+using GroupSwitch.Data.Entities;
 
 namespace GroupSwitch.Tests.Scraping.Services
 {
     public class GroupScheduleCollectorServiceTests
     {
-        private readonly GroupScheduleCollectorService groupScheduleCollectorService = new(TestObjects.NewWeekResponseConverterService());
-
-        private IAsyncEnumerable<WeekRetrieval> StreamOf(List<WeekRetrieval> responses, bool failAtTheEnd = false)
+        private async IAsyncEnumerable<WeekAssessment> StreamOf(IEnumerable<WeekAssessment> assessments)
         {
-            var groupNames = responses.Select(response => response.GroupName).Distinct().ToList();
-            var weeks = responses.Select(response => response.RequestedWeek).Distinct().ToList();
-
-            return new FakeHyperplanningScraper(responses, failAtTheEnd).ScrapeAsync(groupNames, weeks, CancellationToken.None);
+            foreach (var assessment in assessments)
+            {
+                await Task.Yield();
+                yield return assessment;
+            }
         }
 
-        [Fact]
-        public async Task Collect_TwoGroups_YieldsOneScheduleForEachGroup()
+        private WeekAssessment Accepted(string groupName, int week, int sessionCount)
         {
-            var groups = new List<GroupSchedule>();
+            var sessions = Enumerable.Range(0, sessionCount).Select(_ => new ScheduledSession { WeekNumber = week }).ToList();
 
-            await foreach (var group in groupScheduleCollectorService.CollectAsync(StreamOf(SampleData.TwoGroupsResponses()), week => true))
+            return new WeekAssessment(groupName, week, WeekResponseStatus.Complete, sessions, "ok");
+        }
+
+        private WeekAssessment VerifiedEmpty(string groupName, int week)
+        {
+            return new WeekAssessment(groupName, week, WeekResponseStatus.CompleteEmpty, new List<ScheduledSession>(), "vide");
+        }
+
+        private WeekAssessment Rejected(string groupName, int week)
+        {
+            return new WeekAssessment(groupName, week, WeekResponseStatus.Invalid, new List<ScheduledSession>(), "invalide");
+        }
+
+        private async Task<List<GroupSchedule>> CollectAsync(params WeekAssessment[] assessments)
+        {
+            var schedules = new List<GroupSchedule>();
+
+            await foreach (var schedule in new GroupScheduleCollectorService().CollectAsync(StreamOf(assessments)))
             {
-                groups.Add(group);
+                schedules.Add(schedule);
             }
 
-            Assert.Equal(2, groups.Count);
-            Assert.Equal("IODA B3", groups.First().GroupName);
-            Assert.Equal(24, groups.First().Sessions.Count);
-            Assert.Equal("SI 3", groups.Last().GroupName);
-            Assert.Equal(15, groups.Last().Sessions.Count);
-            Assert.Equal(new[] { 8, 11 }, groups.First().WeekNumbers);
-            Assert.Equal(new[] { 11 }, groups.Last().WeekNumbers);
+            return schedules;
         }
 
         [Fact]
-        public async Task Collect_EmptyStream_YieldsNothing()
+        public async Task CollectAsync_TwoGroups_ReturnsOneScheduleEach()
         {
-            var groups = new List<GroupSchedule>();
+            var schedules = await CollectAsync(Accepted("IODA B3", 8, 9), Accepted("IODA B3", 11, 15), Accepted("SI 3", 11, 15));
 
-            await foreach (var group in groupScheduleCollectorService.CollectAsync(StreamOf(new List<WeekRetrieval>()), week => true))
-            {
-                groups.Add(group);
-            }
-
-            Assert.Empty(groups);
+            Assert.Equal(2, schedules.Count);
+            Assert.Equal(new[] { 8, 11 }, schedules[0].WeekNumbers);
+            Assert.Equal(24, schedules[0].Sessions.Count);
         }
 
         [Fact]
-        public async Task Collect_ScraperFails_StillYieldsTheGroupsAlreadyComplete()
+        public async Task CollectAsync_RejectedWeek_IsNotPartOfTheCoveredWeeks()
         {
-            var groups = new List<GroupSchedule>();
-            var responses = StreamOf(SampleData.TwoGroupsResponses(), true);
+            var schedules = await CollectAsync(Rejected("IODA B3", 8), Accepted("IODA B3", 11, 15));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            {
-                await foreach (var group in groupScheduleCollectorService.CollectAsync(responses, week => true))
-                {
-                    groups.Add(group);
-                }
-            });
-
-            Assert.Single(groups);
-            Assert.Equal("IODA B3", groups.First().GroupName);
+            var schedule = Assert.Single(schedules);
+            Assert.Equal(new[] { 11 }, schedule.WeekNumbers);
         }
 
         [Fact]
-        public async Task Collect_WeekWithoutSessions_StillReportsTheScrapedWeek()
+        public async Task CollectAsync_VerifiedEmptyWeek_IsCoveredWithoutSessions()
         {
-            var emptyWeekJson = """{"donneesSec":{"donnees":{"ListeCours":[],"ListeAnnulationsCours":[]}}}""";
-            var responses = new List<WeekRetrieval> { WeekRetrieval.Succeeded("IODA B3", 9, emptyWeekJson) };
-            var groups = new List<GroupSchedule>();
+            var schedules = await CollectAsync(VerifiedEmpty("IODA B3", 7), Accepted("IODA B3", 8, 9));
 
-            await foreach (var group in groupScheduleCollectorService.CollectAsync(StreamOf(responses), week => true))
-            {
-                groups.Add(group);
-            }
+            var schedule = Assert.Single(schedules);
+            Assert.Equal(new[] { 7, 8 }, schedule.WeekNumbers);
+            Assert.Equal(9, schedule.Sessions.Count);
+        }
 
-            var schedule = Assert.Single(groups);
-            Assert.Equal(new[] { 9 }, schedule.WeekNumbers);
-            Assert.Empty(schedule.Sessions);
+        [Fact]
+        public async Task CollectAsync_OnlyRejectedWeeks_ReturnsNothing()
+        {
+            var schedules = await CollectAsync(Rejected("IODA B3", 8), Rejected("IODA B3", 11));
+
+            Assert.Empty(schedules);
         }
     }
 }

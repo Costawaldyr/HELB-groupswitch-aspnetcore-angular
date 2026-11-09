@@ -10,17 +10,24 @@ namespace GroupSwitch.Business.Scraping.Services
     public class HyperplanningImportService : IHyperplanningImportService
     {
         private readonly IHyperplanningScraper _scraper;
+        private readonly IWeekAssessmentService _weekAssessmentService;
         private readonly IGroupScheduleCollectorService _groupScheduleCollectorService;
         private readonly IScheduleRepository _scheduleRepository;
         private readonly IImportRunRepository _importRunRepository;
         private readonly IImportLogService _importLogService;
         private readonly HyperplanningSettings _settings;
 
-
-
-        public HyperplanningImportService(IHyperplanningScraper scraper, IGroupScheduleCollectorService groupScheduleCollectorService, IScheduleRepository scheduleRepository, IImportRunRepository importRunRepository, IImportLogService importLogService, IOptions<HyperplanningSettings> settings)
+        public HyperplanningImportService(
+            IHyperplanningScraper scraper,
+            IWeekAssessmentService weekAssessmentService,
+            IGroupScheduleCollectorService groupScheduleCollectorService,
+            IScheduleRepository scheduleRepository,
+            IImportRunRepository importRunRepository,
+            IImportLogService importLogService,
+            IOptions<HyperplanningSettings> settings)
         {
             _scraper = scraper;
+            _weekAssessmentService = weekAssessmentService;
             _groupScheduleCollectorService = groupScheduleCollectorService;
             _scheduleRepository = scheduleRepository;
             _importRunRepository = importRunRepository;
@@ -61,9 +68,9 @@ namespace GroupSwitch.Business.Scraping.Services
                 var weeks = WeeksToVisit(isWeekWanted);
 
                 var retrievals = _scraper.ScrapeAsync(groupNames, weeks, cancellationToken);
-                var loggedRetrievals = LogFailuresAsync(importRunId, retrievals);
+                var assessments = AssessAsync(importRunId, retrievals);
 
-                await foreach (var groupSchedule in _groupScheduleCollectorService.CollectAsync(loggedRetrievals, isWeekWanted))
+                await foreach (var groupSchedule in _groupScheduleCollectorService.CollectAsync(assessments))
                 {
                     await SaveGroupAsync(importRunId, groupSchedule, totals);
                 }
@@ -83,17 +90,19 @@ namespace GroupSwitch.Business.Scraping.Services
             return Enumerable.Range(_settings.FirstWeek, weekCount).Where(isWeekWanted).ToList();
         }
 
-        private async IAsyncEnumerable<WeekRetrieval> LogFailuresAsync(int importRunId, IAsyncEnumerable<WeekRetrieval> retrievals)
+        private async IAsyncEnumerable<WeekAssessment> AssessAsync(int importRunId, IAsyncEnumerable<WeekRetrieval> retrievals)
         {
             await foreach (var retrieval in retrievals)
             {
-                if (!retrieval.IsSuccessful)
+                var assessment = _weekAssessmentService.Assess(retrieval);
+
+                if (!assessment.IsAccepted)
                 {
-                    var message = string.Format(ImportMessages.WeekFailedFormat, retrieval.GroupName, retrieval.RequestedWeek, retrieval.FailureReason);
+                    var message = string.Format(ImportMessages.WeekRejectedFormat, assessment.GroupName, assessment.Week, assessment.Status, assessment.Diagnostic);
                     await _importLogService.ErrorAsync(importRunId, message);
                 }
 
-                yield return retrieval;
+                yield return assessment;
             }
         }
 

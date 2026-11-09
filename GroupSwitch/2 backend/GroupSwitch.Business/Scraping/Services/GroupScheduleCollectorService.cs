@@ -6,36 +6,29 @@ namespace GroupSwitch.Business.Scraping.Services
 {
     public class GroupScheduleCollectorService : IGroupScheduleCollectorService
     {
-        private readonly IWeekResponseConverterService _weekResponseConverterService;
-
-        public GroupScheduleCollectorService(IWeekResponseConverterService weekResponseConverterService)
-        {
-            _weekResponseConverterService = weekResponseConverterService;
-        }
-
-        public async IAsyncEnumerable<GroupSchedule> CollectAsync(IAsyncEnumerable<WeekRetrieval> retrievals, Func<int, bool> isWeekWanted)
+        public async IAsyncEnumerable<GroupSchedule> CollectAsync(IAsyncEnumerable<WeekAssessment> assessments)
         {
             string? currentGroup = null;
             var currentWeeks = new List<int>();
             var currentSessions = new List<ScheduledSession>();
 
-            await foreach (var retrieval in retrievals)
+            await foreach (var assessment in assessments)
             {
-                if (!retrieval.IsSuccessful)
+                if (!assessment.IsAccepted)
                 {
                     continue;
                 }
 
-                if (currentGroup is not null && retrieval.GroupName != currentGroup)
+                if (currentGroup is not null && assessment.GroupName != currentGroup)
                 {
                     yield return new GroupSchedule(currentGroup, currentWeeks, currentSessions);
                     currentWeeks = new List<int>();
                     currentSessions = new List<ScheduledSession>();
                 }
 
-                currentGroup = retrieval.GroupName;
-                currentWeeks.Add(retrieval.RequestedWeek);
-                currentSessions.AddRange(_weekResponseConverterService.Convert(retrieval, isWeekWanted));
+                currentGroup = assessment.GroupName;
+                currentWeeks.Add(assessment.Week);
+                currentSessions.AddRange(assessment.Sessions);
             }
 
             if (currentGroup is not null)

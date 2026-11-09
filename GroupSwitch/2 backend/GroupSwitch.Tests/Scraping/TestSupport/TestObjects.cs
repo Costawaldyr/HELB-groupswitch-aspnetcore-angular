@@ -18,9 +18,9 @@ namespace GroupSwitch.Tests.Scraping.TestSupport
             return new SessionBuilder(new SessionTimeCalculator(FirstMonday));
         }
 
-        public static WeekResponseConverterService NewWeekResponseConverterService()
+        public static WeekAssessmentService NewWeekAssessmentService()
         {
-            return new WeekResponseConverterService(new WeekScheduleParser(), NewSessionBuilder());
+            return new WeekAssessmentService(new WeekScheduleParser(), NewSessionBuilder());
         }
     }
 }
