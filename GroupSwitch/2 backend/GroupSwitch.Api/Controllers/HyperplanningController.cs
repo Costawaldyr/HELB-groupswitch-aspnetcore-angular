@@ -1,8 +1,7 @@
 using GroupSwitch.Api.Dtos;
 using GroupSwitch.Api.Mapping;
-using GroupSwitch.Business.Interfaces;
-using GroupSwitch.Business.Models;
-using GroupSwitch.Business.Services;
+using GroupSwitch.Business.Scraping.Interfaces;
+using GroupSwitch.Business.Scraping.Models;
 using GroupSwitch.Data.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -18,14 +17,14 @@ namespace GroupSwitch.Api.Controllers
 
         private const string BlankGroupMessage = "Le paramètre group ne peut pas être vide.";
 
-        private readonly IImportQueue _importQueue;
-        private readonly IImportService _importService;
+        private readonly IImportQueueService _importQueueService;
+        private readonly IHyperplanningImportService _hyperplanningImportService;
         private readonly IImportDtoMapper _importDtoMapper;
 
-        public HyperplanningController(IImportQueue importQueue, IImportService importService, IImportDtoMapper importDtoMapper)
+        public HyperplanningController(IImportQueueService importQueueService, IHyperplanningImportService hyperplanningImportService, IImportDtoMapper importDtoMapper)
         {
-            _importQueue = importQueue;
-            _importService = importService;
+            _importQueueService = importQueueService;
+            _hyperplanningImportService = hyperplanningImportService;
             _importDtoMapper = importDtoMapper;
         }
 
@@ -43,8 +42,8 @@ namespace GroupSwitch.Api.Controllers
 
             try
             {
-                var run = await _importService.StartAsync();
-                _importQueue.Enqueue(new ImportRequest(run.Id, group));
+                var run = await _hyperplanningImportService.StartAsync();
+                _importQueueService.Enqueue(new ImportRequest(run.Id, group));
 
                 return AcceptedAtAction(nameof(GetImport), new { id = run.Id }, _importDtoMapper.ToDto(run));
             }
@@ -63,7 +62,7 @@ namespace GroupSwitch.Api.Controllers
         {
             try
             {
-                var run = await _importService.GetAsync(id);
+                var run = await _hyperplanningImportService.GetAsync(id);
 
                 return Ok(ToDetailsDto(run));
             }
@@ -77,7 +76,7 @@ namespace GroupSwitch.Api.Controllers
         [Route("imports", Name = nameof(GetLatestImports))]
         public async Task<IActionResult> GetLatestImports()
         {
-            var runs = await _importService.GetLatestAsync(LatestRunsCount);
+            var runs = await _hyperplanningImportService.GetLatestAsync(LatestRunsCount);
 
             return Ok(runs.Select(ToDto));
         }

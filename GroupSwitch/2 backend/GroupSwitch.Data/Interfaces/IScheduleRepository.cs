@@ -1,6 +1,6 @@
 ﻿using GroupSwitch.Data.Entities;
 
-namespace GroupSwitch.Data.Repositories
+namespace GroupSwitch.Data.Interfaces
 {
     public interface IScheduleRepository
     {

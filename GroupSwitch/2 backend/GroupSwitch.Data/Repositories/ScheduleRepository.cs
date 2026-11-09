@@ -1,4 +1,5 @@
 ﻿using GroupSwitch.Data.Entities;
+using GroupSwitch.Data.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace GroupSwitch.Data.Repositories

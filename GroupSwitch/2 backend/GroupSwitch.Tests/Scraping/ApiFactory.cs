@@ -1,6 +1,6 @@
-﻿using GroupSwitch.Business.Interfaces;
+﻿using GroupSwitch.Business.Scraping.Interfaces;
 using GroupSwitch.Data;
-using GroupSwitch.Tests.Scraping;
+using GroupSwitch.Tests.Scraping.TestSupport;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;

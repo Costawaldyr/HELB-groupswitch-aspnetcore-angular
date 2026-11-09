@@ -1,17 +1,16 @@
-﻿using GroupSwitch.Business.Interfaces;
-using GroupSwitch.Business.Models;
-using GroupSwitch.Business.Scraping;
+using GroupSwitch.Business.Scraping.Interfaces;
+using GroupSwitch.Business.Scraping.Models;
 
 namespace GroupSwitch.Api.BackgroundServices
 {
     public class ImportBackgroundService : BackgroundService
     {
-        private readonly IImportQueue _queue;
+        private readonly IImportQueueService _importQueueService;
         private readonly IServiceScopeFactory _scopeFactory;
 
-        public ImportBackgroundService(IImportQueue queue, IServiceScopeFactory scopeFactory)
+        public ImportBackgroundService(IImportQueueService importQueueService, IServiceScopeFactory scopeFactory)
         {
-            _queue = queue;
+            _importQueueService = importQueueService;
             _scopeFactory = scopeFactory;
         }
 
@@ -19,19 +18,21 @@ namespace GroupSwitch.Api.BackgroundServices
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                var request = await _queue.DequeueAsync(stoppingToken);
+                var request = await _importQueueService.DequeueAsync(stoppingToken);
 
-                await RunImportAsync(request);
+                await RunImportAsync(request, stoppingToken);
             }
         }
 
-        private async Task RunImportAsync(ImportRequest request)
+        private async Task RunImportAsync(ImportRequest request, CancellationToken stoppingToken)
         {
             using var scope = _scopeFactory.CreateScope();
-            var importService = scope.ServiceProvider.GetRequiredService<IImportService>();
+            var hyperplanningImportService = scope.ServiceProvider.GetRequiredService<IHyperplanningImportService>();
 
             Func<string, bool> isGroupWanted = name => request.GroupName is null || name == request.GroupName;
-            await importService.RunAsync(request.ImportRunId, isGroupWanted, QuadrimesterFilters.IsInFirstQuadrimester);
+            Func<int, bool> isWeekWanted = week => true;
+
+            await hyperplanningImportService.RunAsync(request.ImportRunId, isGroupWanted, isWeekWanted, stoppingToken);
         }
     }
 }
