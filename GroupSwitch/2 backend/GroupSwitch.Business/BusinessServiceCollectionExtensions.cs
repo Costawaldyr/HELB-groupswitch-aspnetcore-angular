@@ -22,7 +22,6 @@ namespace GroupSwitch.Business
             services.AddSingleton<IGroupListParser, GroupListParser>();
             services.AddSingleton<IWeekScheduleParser, WeekScheduleParser>();
             services.AddSingleton<IWeekAssessmentService, WeekAssessmentService>();
-            services.AddSingleton<IGroupScheduleCollectorService, GroupScheduleCollectorService>();
             services.AddSingleton<IImportQueueService, ImportQueueService>();
             services.AddSingleton<IValidateOptions<HyperplanningSettings>, HyperplanningSettingsValidator>();
 
@@ -30,7 +29,7 @@ namespace GroupSwitch.Business
             services.AddScoped<IHyperplanningScraper, PlaywrightHyperplanningScraper>();
             services.AddScoped<IImportLogService, ImportLogService>();
             services.AddScoped<IHyperplanningImportService, HyperplanningImportService>();
-
+            services.AddScoped<IScheduleQueryService, ScheduleQueryService>();
 
             return services;
         }

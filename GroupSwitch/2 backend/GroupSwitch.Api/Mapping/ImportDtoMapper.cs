@@ -7,7 +7,20 @@ namespace GroupSwitch.Api.Mapping
     {
         public ImportRunDto ToDto(ImportRun run)
         {
-            return new ImportRunDto(run.Id, run.StartedAt, run.FinishedAt, run.Status.ToString(), run.GroupsImported, run.SessionsImported);
+            return new ImportRunDto(
+                run.Id,
+                run.StartedAt,
+                run.FinishedAt,
+                run.Status.ToString(),
+                run.GroupsImported,
+                run.SessionsImported,
+                run.RequestedGroupName,
+                run.AcademicYear,
+                run.FirstWeek,
+                run.LastWeek,
+                run.SuccessfulWeeks,
+                run.RejectedWeeks,
+                run.CancellationRequested);
         }
 
         public ImportDetailsDto ToDetailsDto(ImportRun run)

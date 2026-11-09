@@ -1,14 +1,13 @@
 ﻿using GroupSwitch.Data.Entities;
-using Microsoft.EntityFrameworkCore;
-using GroupSwitch.Data.Interfaces;
 using GroupSwitch.Data.Enums;
-
+using GroupSwitch.Data.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace GroupSwitch.Data.Repositories
 {
     public class ImportRunRepository : IImportRunRepository
     {
-        private const int MessageMaxLength = 500;
+        private const string UnknownImportFormat = "Import {0} introuvable.";
 
         private readonly GroupSwitchDbContext _dbContext;
 
@@ -24,17 +23,16 @@ namespace GroupSwitch.Data.Repositories
 
         public async Task<ImportRun> GetByIdAsync(int importRunId)
         {
-            var runs = await _dbContext.ImportRuns
-                .Include(run => run.LogEntriesList)
-                .Where(run => run.Id == importRunId)
-                .ToListAsync();
+            var run = await _dbContext.ImportRuns
+                .Include(importRun => importRun.LogEntriesList)
+                .FirstOrDefaultAsync(importRun => importRun.Id == importRunId);
 
-            if (!runs.Any())
+            if (run is null)
             {
-                throw new ArgumentException($"Import {importRunId} introuvable.");
+                throw new ArgumentException(string.Format(UnknownImportFormat, importRunId));
             }
 
-            return runs.First();
+            return run;
         }
 
         public async Task<IEnumerable<ImportRun>> GetLatestAsync(int count)
@@ -46,12 +44,16 @@ namespace GroupSwitch.Data.Repositories
                 .ToListAsync();
         }
 
-        public async Task<ImportRun> StartAsync()
+        public async Task<ImportRun> StartAsync(string? requestedGroupName, string academicYear, int firstWeek, int lastWeek)
         {
             var run = new ImportRun
             {
                 StartedAt = DateTime.Now,
-                Status = ImportStatus.Running
+                Status = ImportStatus.Running,
+                RequestedGroupName = requestedGroupName,
+                AcademicYear = academicYear,
+                FirstWeek = firstWeek,
+                LastWeek = lastWeek
             };
 
             _dbContext.ImportRuns.Add(run);
@@ -67,8 +69,18 @@ namespace GroupSwitch.Data.Repositories
                 ImportRunId = importRunId,
                 Moment = DateTime.Now,
                 Level = level,
-                Message = message.Length <= MessageMaxLength ? message : message.Substring(0, MessageMaxLength)
+                Message = Shorten(message)
             });
+
+            await _dbContext.SaveChangesAsync();
+        }
+
+        public async Task UpdateWeekCountsAsync(int importRunId, int successfulWeeks, int rejectedWeeks)
+        {
+            var run = await _dbContext.ImportRuns.SingleAsync(importRun => importRun.Id == importRunId);
+
+            run.SuccessfulWeeks = successfulWeeks;
+            run.RejectedWeeks = rejectedWeeks;
 
             await _dbContext.SaveChangesAsync();
         }
@@ -83,6 +95,57 @@ namespace GroupSwitch.Data.Repositories
             run.SessionsImported = sessionsImported;
 
             await _dbContext.SaveChangesAsync();
+        }
+
+        public async Task<bool> RequestCancellationAsync(int importRunId)
+        {
+            var run = await GetByIdAsync(importRunId);
+
+            if (run.Status != ImportStatus.Running)
+            {
+                return false;
+            }
+
+            run.CancellationRequested = true;
+            await _dbContext.SaveChangesAsync();
+
+            return true;
+        }
+
+        public Task<bool> IsCancellationRequestedAsync(int importRunId)
+        {
+            return _dbContext.ImportRuns
+                .Where(run => run.Id == importRunId)
+                .Select(run => run.CancellationRequested)
+                .SingleAsync();
+        }
+
+        public async Task<int> RecoverInterruptedAsync(string interruptionMessage, string level)
+        {
+            var runningRuns = await _dbContext.ImportRuns
+                .Where(run => run.Status == ImportStatus.Running)
+                .ToListAsync();
+
+            foreach (var run in runningRuns)
+            {
+                run.Status = ImportStatus.Interrupted;
+                run.FinishedAt = DateTime.Now;
+                run.LogEntriesList.Add(new ImportLogEntry
+                {
+                    Moment = DateTime.Now,
+                    Level = level,
+                    Message = Shorten(interruptionMessage)
+                });
+            }
+
+            await _dbContext.SaveChangesAsync();
+
+            return runningRuns.Count;
+        }
+
+        private string Shorten(string message)
+        {
+            return message.Length <= ImportLogEntry.MessageMaxLength ? message : message.Substring(0, ImportLogEntry.MessageMaxLength);
         }
     }
 }

@@ -10,11 +10,13 @@ namespace GroupSwitch.Tests.Scraping.TestSupport
 
         private readonly List<WeekRetrieval> _retrievals;
         private readonly bool _failAtTheEnd;
+        private readonly int? _failAfterRetrievalCount;
 
-        public FakeHyperplanningScraper(IEnumerable<WeekRetrieval> retrievals, bool failAtTheEnd = false)
+        public FakeHyperplanningScraper(IEnumerable<WeekRetrieval> retrievals, bool failAtTheEnd = false, int? failAfterRetrievalCount = null)
         {
             _retrievals = retrievals.ToList();
             _failAtTheEnd = failAtTheEnd;
+            _failAfterRetrievalCount = failAfterRetrievalCount;
         }
 
         public Task<IReadOnlyList<string>> GetGroupNamesAsync(CancellationToken cancellationToken)
@@ -30,10 +32,18 @@ namespace GroupSwitch.Tests.Scraping.TestSupport
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var wanted = _retrievals.Where(retrieval => groupNames.Contains(retrieval.GroupName) && weeks.Contains(retrieval.RequestedWeek));
+            var yieldedCount = 0;
 
             foreach (var retrieval in wanted)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                if (yieldedCount == _failAfterRetrievalCount)
+                {
+                    throw new InvalidOperationException(FailureMessage);
+                }
+
+                yieldedCount++;
                 await Task.Yield();
                 yield return retrieval;
             }

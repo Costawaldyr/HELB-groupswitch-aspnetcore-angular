@@ -2,10 +2,7 @@ using GroupSwitch.Api.Dtos;
 using GroupSwitch.Api.Mapping;
 using GroupSwitch.Business.Scraping.Interfaces;
 using GroupSwitch.Business.Scraping.Models;
-using GroupSwitch.Data.Entities;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-
 
 namespace GroupSwitch.Api.Controllers
 {
@@ -14,8 +11,9 @@ namespace GroupSwitch.Api.Controllers
     public class HyperplanningController : ControllerBase
     {
         private const int LatestRunsCount = 10;
-
+        private const string GroupParameter = "group";
         private const string BlankGroupMessage = "Le paramètre group ne peut pas être vide.";
+        private const string NotRunningMessage = "Cet import n'est pas en cours.";
 
         private readonly IImportQueueService _importQueueService;
         private readonly IHyperplanningImportService _hyperplanningImportService;
@@ -33,19 +31,31 @@ namespace GroupSwitch.Api.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted, Type = typeof(ImportRunDto))]
         [ProducesResponseType(StatusCodes.Status400BadRequest, Type = typeof(string))]
         [ProducesResponseType(StatusCodes.Status409Conflict, Type = typeof(string))]
-        public async Task<IActionResult> StartImport([FromQuery] string? group = null)
+        public async Task<IActionResult> StartImport(
+            [FromQuery] string? group,
+            [FromQuery] int? firstWeek,
+            [FromQuery] int? lastWeek,
+            CancellationToken cancellationToken)
         {
-            if (Request.Query.ContainsKey("group") && string.IsNullOrWhiteSpace(group))
+            if (Request.Query.ContainsKey(GroupParameter) && string.IsNullOrWhiteSpace(group))
             {
                 return BadRequest(BlankGroupMessage);
             }
 
             try
             {
-                var run = await _hyperplanningImportService.StartAsync();
-                _importQueueService.Enqueue(new ImportRequest(run.Id, group));
+                var run = await _hyperplanningImportService.StartAsync(new ImportRequest(group, firstWeek, lastWeek), cancellationToken);
+                _importQueueService.Enqueue(new QueuedImport(run.Id, run.RequestedGroupName));
 
                 return AcceptedAtAction(nameof(GetImport), new { id = run.Id }, _importDtoMapper.ToDto(run));
+            }
+            catch (UnknownGroupException exception)
+            {
+                return BadRequest(exception.Message);
+            }
+            catch (InvalidWeekRangeException exception)
+            {
+                return BadRequest(exception.Message);
             }
             catch (ImportAlreadyRunningException exception)
             {
@@ -53,6 +63,24 @@ namespace GroupSwitch.Api.Controllers
             }
         }
 
+        [HttpPost]
+        [Route("imports/{id:int}/cancel", Name = nameof(CancelImport))]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status404NotFound, Type = typeof(string))]
+        [ProducesResponseType(StatusCodes.Status409Conflict, Type = typeof(string))]
+        public async Task<IActionResult> CancelImport(int id)
+        {
+            try
+            {
+                var isCancellationRecorded = await _hyperplanningImportService.RequestCancellationAsync(id);
+
+                return isCancellationRecorded ? Accepted() : Conflict(NotRunningMessage);
+            }
+            catch (ArgumentException exception)
+            {
+                return NotFound(exception.Message);
+            }
+        }
 
         [HttpGet]
         [Route("imports/{id:int}", Name = nameof(GetImport))]
@@ -64,7 +92,7 @@ namespace GroupSwitch.Api.Controllers
             {
                 var run = await _hyperplanningImportService.GetAsync(id);
 
-                return Ok(ToDetailsDto(run));
+                return Ok(_importDtoMapper.ToDetailsDto(run));
             }
             catch (ArgumentException exception)
             {
@@ -74,27 +102,22 @@ namespace GroupSwitch.Api.Controllers
 
         [HttpGet]
         [Route("imports", Name = nameof(GetLatestImports))]
+        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IEnumerable<ImportRunDto>))]
         public async Task<IActionResult> GetLatestImports()
         {
             var runs = await _hyperplanningImportService.GetLatestAsync(LatestRunsCount);
 
-            return Ok(runs.Select(ToDto));
+            return Ok(runs.Select(_importDtoMapper.ToDto));
         }
 
-
-
-        private ImportRunDto ToDto(ImportRun run)
+        [HttpGet]
+        [Route("groups", Name = nameof(GetGroups))]
+        [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IEnumerable<string>))]
+        public async Task<IActionResult> GetGroups(CancellationToken cancellationToken)
         {
-            return new ImportRunDto(run.Id, run.StartedAt, run.FinishedAt, run.Status.ToString(), run.GroupsImported, run.SessionsImported);
-        }
+            var groupNames = await _hyperplanningImportService.GetGroupNamesAsync(cancellationToken);
 
-        private ImportDetailsDto ToDetailsDto(ImportRun run)
-        {
-            var log = run.LogEntriesList
-                .OrderBy(entry => entry.Id)
-                .Select(entry => new ImportLogDto(entry.Moment, entry.Level, entry.Message));
-
-            return new ImportDetailsDto(ToDto(run), log);
+            return Ok(groupNames);
         }
     }
 }

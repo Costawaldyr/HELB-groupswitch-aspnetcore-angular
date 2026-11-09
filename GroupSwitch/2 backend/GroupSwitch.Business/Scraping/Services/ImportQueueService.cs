@@ -6,16 +6,16 @@ namespace GroupSwitch.Business.Scraping.Services
 {
     public class ImportQueueService : IImportQueueService
     {
-        private readonly Channel<ImportRequest> channel = Channel.CreateUnbounded<ImportRequest>();
+        private readonly Channel<QueuedImport> _channel = Channel.CreateUnbounded<QueuedImport>();
 
-        public void Enqueue(ImportRequest request)
+        public void Enqueue(QueuedImport queuedImport)
         {
-            channel.Writer.TryWrite(request);
+            _channel.Writer.TryWrite(queuedImport);
         }
 
-        public ValueTask<ImportRequest> DequeueAsync(CancellationToken cancellationToken)
+        public ValueTask<QueuedImport> DequeueAsync(CancellationToken cancellationToken)
         {
-            return channel.Reader.ReadAsync(cancellationToken);
+            return _channel.Reader.ReadAsync(cancellationToken);
         }
     }
 }

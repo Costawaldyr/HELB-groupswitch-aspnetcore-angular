@@ -15,6 +15,10 @@ namespace GroupSwitch.Data.Entities
         public int Id { get; set; }
 
         public int WeekNumber { get; set; }
+
+        [MaxLength(ScheduleCoverage.AcademicYearMaxLength)]
+        public string? AcademicYear { get; set; }
+
         public DateTime Start { get; set; }
         public DateTime End { get; set; }
 

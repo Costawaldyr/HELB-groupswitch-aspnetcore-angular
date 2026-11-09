@@ -4,7 +4,7 @@ namespace GroupSwitch.Business.Scraping.Interfaces
 {
     public interface IImportQueueService
     {
-        void Enqueue(ImportRequest request);
-        ValueTask<ImportRequest> DequeueAsync(CancellationToken cancellationToken);
+        void Enqueue(QueuedImport queuedImport);
+        ValueTask<QueuedImport> DequeueAsync(CancellationToken cancellationToken);
     }
 }

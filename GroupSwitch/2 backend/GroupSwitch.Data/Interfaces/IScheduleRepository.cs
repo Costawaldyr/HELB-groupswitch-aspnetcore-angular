@@ -4,12 +4,29 @@ namespace GroupSwitch.Data.Interfaces
 {
     public interface IScheduleRepository
     {
-        /// <summary>
-        /// Replaces only the sessions of the weeks that were actually scraped for this group.
-        /// Sessions of other weeks are never touched, so a partial import cannot lose data.
-        /// </summary>
-        Task<int> ReplaceGroupWeeksAsync(string groupName, IReadOnlyCollection<int> scrapedWeeks, IEnumerable<ScheduledSession> sessions);
+        Task<int> ReplaceWeekAsync(
+            string groupName,
+            string academicYear,
+            int week,
+            IEnumerable<ScheduledSession> sessions,
+            int importRunId,
+            DateTime retrievedAtUtc,
+            CancellationToken cancellationToken = default);
 
-        Task<IEnumerable<ScheduledSession>> GetSessionsOfGroupAsync(string groupName);
+        Task<bool> HasGroupAsync(string groupName, CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<ScheduledSession>> GetSessionsAsync(
+            string groupName,
+            string academicYear,
+            int firstWeek,
+            int lastWeek,
+            CancellationToken cancellationToken = default);
+
+        Task<IReadOnlyList<ScheduleCoverage>> GetCoveragesAsync(
+            string groupName,
+            string academicYear,
+            int firstWeek,
+            int lastWeek,
+            CancellationToken cancellationToken = default);
     }
 }

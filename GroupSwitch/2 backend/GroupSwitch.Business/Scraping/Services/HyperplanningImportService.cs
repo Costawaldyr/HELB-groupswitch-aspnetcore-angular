@@ -9,9 +9,10 @@ namespace GroupSwitch.Business.Scraping.Services
 {
     public class HyperplanningImportService : IHyperplanningImportService
     {
+        private static readonly SemaphoreSlim StartLock = new(1, 1);
+
         private readonly IHyperplanningScraper _scraper;
         private readonly IWeekAssessmentService _weekAssessmentService;
-        private readonly IGroupScheduleCollectorService _groupScheduleCollectorService;
         private readonly IScheduleRepository _scheduleRepository;
         private readonly IImportRunRepository _importRunRepository;
         private readonly IImportLogService _importLogService;
@@ -20,7 +21,6 @@ namespace GroupSwitch.Business.Scraping.Services
         public HyperplanningImportService(
             IHyperplanningScraper scraper,
             IWeekAssessmentService weekAssessmentService,
-            IGroupScheduleCollectorService groupScheduleCollectorService,
             IScheduleRepository scheduleRepository,
             IImportRunRepository importRunRepository,
             IImportLogService importLogService,
@@ -28,21 +28,36 @@ namespace GroupSwitch.Business.Scraping.Services
         {
             _scraper = scraper;
             _weekAssessmentService = weekAssessmentService;
-            _groupScheduleCollectorService = groupScheduleCollectorService;
             _scheduleRepository = scheduleRepository;
             _importRunRepository = importRunRepository;
             _importLogService = importLogService;
             _settings = settings.Value;
         }
 
-        public async Task<ImportRun> StartAsync()
+        public async Task<ImportRun> StartAsync(ImportRequest request, CancellationToken cancellationToken = default)
         {
-            if (await _importRunRepository.HasRunningImportAsync())
+            var weekRange = _settings.ResolveWeekRange(request.FirstWeek, request.LastWeek);
+
+            if (request.GroupName is not null)
             {
-                throw new ImportAlreadyRunningException();
+                await EnsureGroupExistsAsync(request.GroupName, cancellationToken);
             }
 
-            return await _importRunRepository.StartAsync();
+            await StartLock.WaitAsync(cancellationToken);
+
+            try
+            {
+                if (await _importRunRepository.HasRunningImportAsync())
+                {
+                    throw new ImportAlreadyRunningException();
+                }
+
+                return await _importRunRepository.StartAsync(request.GroupName, _settings.AcademicYear, weekRange.FirstWeek, weekRange.LastWeek);
+            }
+            finally
+            {
+                StartLock.Release();
+            }
         }
 
         public Task<ImportRun> GetAsync(int importRunId)
@@ -55,76 +70,139 @@ namespace GroupSwitch.Business.Scraping.Services
             return _importRunRepository.GetLatestAsync(count);
         }
 
-        public async Task RunAsync(int importRunId, Func<string, bool> isGroupWanted, Func<int, bool> isWeekWanted, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<string>> GetGroupNamesAsync(CancellationToken cancellationToken = default)
         {
+            return _scraper.GetGroupNamesAsync(cancellationToken);
+        }
+
+        public Task<bool> RequestCancellationAsync(int importRunId)
+        {
+            return _importRunRepository.RequestCancellationAsync(importRunId);
+        }
+
+        public Task<int> RecoverInterruptedAsync()
+        {
+            return _importRunRepository.RecoverInterruptedAsync(ImportMessages.Interrupted, ImportLogLevels.Error);
+        }
+
+        public async Task RunAsync(int importRunId, CancellationToken cancellationToken = default)
+        {
+            var run = await _importRunRepository.GetByIdAsync(importRunId);
             var totals = new ImportTotals();
 
             await _importLogService.InfoAsync(importRunId, ImportMessages.Started);
 
             try
             {
-                var allGroupNames = await _scraper.GetGroupNamesAsync(cancellationToken);
-                var groupNames = allGroupNames.Where(isGroupWanted).ToList();
-                var weeks = WeeksToVisit(isWeekWanted);
-
-                var retrievals = _scraper.ScrapeAsync(groupNames, weeks, cancellationToken);
-                var assessments = AssessAsync(importRunId, retrievals);
-
-                await foreach (var groupSchedule in _groupScheduleCollectorService.CollectAsync(assessments))
-                {
-                    await SaveGroupAsync(importRunId, groupSchedule, totals);
-                }
-
-                await CompleteAsync(importRunId, totals);
+                var status = await ImportWeeksAsync(run, totals, cancellationToken);
+                await FinishAsync(importRunId, status, totals);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await _importLogService.ErrorAsync(importRunId, ImportMessages.Shutdown);
+                await FinishAsync(importRunId, ImportStatus.Interrupted, totals);
             }
             catch (Exception exception)
             {
-                await FailAsync(importRunId, exception, totals);
+                await _importLogService.ErrorAsync(importRunId, exception.Message);
+                await FinishAsync(importRunId, ImportStatus.Failed, totals);
             }
         }
 
-        private List<int> WeeksToVisit(Func<int, bool> isWeekWanted)
+        private async Task<ImportStatus> ImportWeeksAsync(ImportRun run, ImportTotals totals, CancellationToken cancellationToken)
         {
-            var weekCount = _settings.LastWeek - _settings.FirstWeek + 1;
-
-            return Enumerable.Range(_settings.FirstWeek, weekCount).Where(isWeekWanted).ToList();
-        }
-
-        private async IAsyncEnumerable<WeekAssessment> AssessAsync(int importRunId, IAsyncEnumerable<WeekRetrieval> retrievals)
-        {
-            await foreach (var retrieval in retrievals)
+            if (run.AcademicYear is null || run.FirstWeek is null || run.LastWeek is null)
             {
-                var assessment = _weekAssessmentService.Assess(retrieval);
+                throw new InvalidOperationException(ImportMessages.MissingScope);
+            }
 
-                if (!assessment.IsAccepted)
+            var weeks = new WeekRange(run.FirstWeek.Value, run.LastWeek.Value).Weeks().ToList();
+            var groupNames = await GroupNamesToImportAsync(run.RequestedGroupName, cancellationToken);
+
+            await foreach (var retrieval in _scraper.ScrapeAsync(groupNames, weeks, cancellationToken))
+            {
+                await ImportWeekAsync(run.Id, run.AcademicYear, retrieval, totals, cancellationToken);
+
+                if (await _importRunRepository.IsCancellationRequestedAsync(run.Id))
                 {
-                    var message = string.Format(ImportMessages.WeekRejectedFormat, assessment.GroupName, assessment.Week, assessment.Status, assessment.Diagnostic);
-                    await _importLogService.ErrorAsync(importRunId, message);
-                }
+                    await _importLogService.InfoAsync(run.Id, ImportMessages.Cancelled);
 
-                yield return assessment;
+                    return ImportStatus.Cancelled;
+                }
+            }
+
+            return FinalStatusOf(totals);
+        }
+
+        private async Task ImportWeekAsync(int importRunId, string academicYear, WeekRetrieval retrieval, ImportTotals totals, CancellationToken cancellationToken)
+        {
+            var assessment = _weekAssessmentService.Assess(retrieval);
+
+            if (assessment.IsAccepted)
+            {
+                var sessionCount = await _scheduleRepository.ReplaceWeekAsync(
+                    assessment.GroupName,
+                    academicYear,
+                    assessment.Week,
+                    assessment.Sessions,
+                    importRunId,
+                    retrieval.RetrievedAtUtc,
+                    cancellationToken);
+
+                totals.AddSavedWeek(assessment.GroupName, sessionCount);
+            }
+            else
+            {
+                var message = string.Format(ImportMessages.WeekRejectedFormat, assessment.GroupName, assessment.Week, assessment.Status, assessment.Diagnostic);
+                await _importLogService.ErrorAsync(importRunId, message);
+                totals.AddRejectedWeek();
+            }
+
+            await _importRunRepository.UpdateWeekCountsAsync(importRunId, totals.SuccessfulWeeks, totals.RejectedWeeks);
+        }
+
+        private ImportStatus FinalStatusOf(ImportTotals totals)
+        {
+            if (totals.SuccessfulWeeks == 0)
+            {
+                return ImportStatus.Failed;
+            }
+
+            return totals.RejectedWeeks == 0 ? ImportStatus.Finished : ImportStatus.PartiallyCompleted;
+        }
+
+        private async Task<IReadOnlyCollection<string>> GroupNamesToImportAsync(string? requestedGroupName, CancellationToken cancellationToken)
+        {
+            if (requestedGroupName is not null)
+            {
+                return new[] { requestedGroupName };
+            }
+
+            return await _scraper.GetGroupNamesAsync(cancellationToken);
+        }
+
+        private async Task EnsureGroupExistsAsync(string groupName, CancellationToken cancellationToken)
+        {
+            var groupNames = await _scraper.GetGroupNamesAsync(cancellationToken);
+
+            if (!groupNames.Contains(groupName))
+            {
+                throw new UnknownGroupException(groupName);
             }
         }
 
-        private async Task SaveGroupAsync(int importRunId, GroupSchedule groupSchedule, ImportTotals totals)
+        private async Task FinishAsync(int importRunId, ImportStatus status, ImportTotals totals)
         {
-            var count = await _scheduleRepository.ReplaceGroupWeeksAsync(groupSchedule.GroupName, groupSchedule.WeekNumbers, groupSchedule.Sessions);
+            foreach (var summary in totals.GroupSummaries)
+            {
+                await _importLogService.InfoAsync(importRunId,
+                    string.Format(ImportMessages.GroupSavedFormat, summary.GroupName, summary.SessionCount, summary.WeekCount));
+            }
 
-            totals.AddGroup(count);
             await _importLogService.InfoAsync(importRunId,
-                string.Format(ImportMessages.GroupSavedFormat, groupSchedule.GroupName, count, groupSchedule.WeekNumbers.Count));
-        }
-
-        private async Task CompleteAsync(int importRunId, ImportTotals totals)
-        {
-            await _importLogService.InfoAsync(importRunId, string.Format(ImportMessages.FinishedFormat, totals.Groups, totals.Sessions));
-            await _importRunRepository.FinishAsync(importRunId, ImportStatus.Finished, totals.Groups, totals.Sessions);
-        }
-
-        private async Task FailAsync(int importRunId, Exception exception, ImportTotals totals)
-        {
-            await _importLogService.ErrorAsync(importRunId, exception.Message);
-            await _importRunRepository.FinishAsync(importRunId, ImportStatus.Failed, totals.Groups, totals.Sessions);
+                string.Format(ImportMessages.FinishedFormat, status, totals.Groups, totals.Sessions, totals.SuccessfulWeeks, totals.RejectedWeeks));
+            await _importRunRepository.UpdateWeekCountsAsync(importRunId, totals.SuccessfulWeeks, totals.RejectedWeeks);
+            await _importRunRepository.FinishAsync(importRunId, status, totals.Groups, totals.Sessions);
         }
     }
 }

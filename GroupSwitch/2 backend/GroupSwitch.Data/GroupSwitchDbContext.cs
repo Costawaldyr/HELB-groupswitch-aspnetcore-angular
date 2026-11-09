@@ -12,6 +12,7 @@ namespace GroupSwitch.Data
         public DbSet<ScheduledSession> ScheduledSessions { get; set; }
         public DbSet<ImportRun> ImportRuns { get; set; }
         public DbSet<ImportLogEntry> ImportLogEntries { get; set; }
+        public DbSet<ScheduleCoverage> ScheduleCoverages { get; set; }
 
         public GroupSwitchDbContext(DbContextOptions<GroupSwitchDbContext> options) : base(options)
         {

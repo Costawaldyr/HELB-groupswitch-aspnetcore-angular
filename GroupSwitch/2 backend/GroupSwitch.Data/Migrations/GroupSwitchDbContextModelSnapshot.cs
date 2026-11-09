@@ -82,11 +82,31 @@ namespace GroupSwitch.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AcademicYear")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("CancellationRequested")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime?>("FinishedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("FirstWeek")
+                        .HasColumnType("int");
+
                     b.Property<int>("GroupsImported")
                         .HasColumnType("int");
+
+                    b.Property<int?>("LastWeek")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RejectedWeeks")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequestedGroupName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<int>("SessionsImported")
                         .HasColumnType("int");
@@ -97,9 +117,48 @@ namespace GroupSwitch.Data.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("SuccessfulWeeks")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.ToTable("ImportRuns");
+                });
+
+            modelBuilder.Entity("GroupSwitch.Data.Entities.ScheduleCoverage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AcademicYear")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int>("LastImportRunId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("LastVerifiedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("SessionCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentGroupId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WeekNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentGroupId", "AcademicYear", "WeekNumber")
+                        .IsUnique();
+
+                    b.ToTable("ScheduleCoverages");
                 });
 
             modelBuilder.Entity("GroupSwitch.Data.Entities.ScheduledSession", b =>
@@ -109,6 +168,10 @@ namespace GroupSwitch.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AcademicYear")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<int>("ActivityId")
                         .HasColumnType("int");
@@ -182,6 +245,17 @@ namespace GroupSwitch.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("ImportRun");
+                });
+
+            modelBuilder.Entity("GroupSwitch.Data.Entities.ScheduleCoverage", b =>
+                {
+                    b.HasOne("GroupSwitch.Data.Entities.StudentGroup", "StudentGroup")
+                        .WithMany()
+                        .HasForeignKey("StudentGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StudentGroup");
                 });
 
             modelBuilder.Entity("GroupSwitch.Data.Entities.ScheduledSession", b =>

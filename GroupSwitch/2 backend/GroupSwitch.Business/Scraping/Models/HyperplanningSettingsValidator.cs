@@ -1,3 +1,4 @@
+using GroupSwitch.Data.Entities;
 using Microsoft.Extensions.Options;
 
 namespace GroupSwitch.Business.Scraping.Models
@@ -7,7 +8,7 @@ namespace GroupSwitch.Business.Scraping.Models
         public const int LastPossibleWeek = 52;
 
         private const string PageUrlMessage = "Hyperplanning:PageUrl doit être une adresse https absolue.";
-        private const string AcademicYearMessage = "Hyperplanning:AcademicYear est obligatoire.";
+        private const string AcademicYearFormat = "Hyperplanning:AcademicYear est obligatoire et fait au plus {0} caractères.";
         private const string FirstMondayMessage = "Hyperplanning:FirstMonday doit être un lundi.";
         private const string WeekRangeMessage = "Hyperplanning:FirstWeek et LastWeek doivent respecter 1 <= FirstWeek <= LastWeek <= 52.";
         private const string TimeoutMessage = "Hyperplanning:TimeoutMs doit être supérieur à 0.";
@@ -27,9 +28,9 @@ namespace GroupSwitch.Business.Scraping.Models
                 yield return PageUrlMessage;
             }
 
-            if (string.IsNullOrWhiteSpace(settings.AcademicYear))
+            if (string.IsNullOrWhiteSpace(settings.AcademicYear) || settings.AcademicYear.Length > ScheduleCoverage.AcademicYearMaxLength)
             {
-                yield return AcademicYearMessage;
+                yield return string.Format(AcademicYearFormat, ScheduleCoverage.AcademicYearMaxLength);
             }
 
             if (settings.FirstMonday.DayOfWeek != DayOfWeek.Monday)

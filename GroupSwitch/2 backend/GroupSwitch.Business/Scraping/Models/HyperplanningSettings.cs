@@ -16,5 +16,18 @@ namespace GroupSwitch.Business.Scraping.Models
         public int TimeoutMs { get; set; } = DefaultTimeoutMs;
         public int DelayBetweenRequestsMs { get; set; } = DefaultDelayBetweenRequestsMs;
         public bool Headless { get; set; } = true;
+
+        public WeekRange ResolveWeekRange(int? firstWeek, int? lastWeek)
+        {
+            var requestedFirstWeek = firstWeek ?? FirstWeek;
+            var requestedLastWeek = lastWeek ?? LastWeek;
+
+            if (requestedFirstWeek < FirstWeek || requestedLastWeek > LastWeek || requestedFirstWeek > requestedLastWeek)
+            {
+                throw new InvalidWeekRangeException(FirstWeek, LastWeek);
+            }
+
+            return new WeekRange(requestedFirstWeek, requestedLastWeek);
+        }
     }
 }

@@ -24,6 +24,7 @@ builder.Services.AddOptions<HyperplanningSettings>()
 
 // Mapping
 builder.Services.AddSingleton<IImportDtoMapper, ImportDtoMapper>();
+builder.Services.AddSingleton<ScheduleDtoMapper>();
 
 
 

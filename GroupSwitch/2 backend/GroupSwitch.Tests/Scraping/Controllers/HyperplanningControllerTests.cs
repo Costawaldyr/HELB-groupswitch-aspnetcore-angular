@@ -104,7 +104,7 @@ namespace GroupSwitch.Tests.Scraping.Controllers
             using (var scope = factory.Services.CreateScope())
             {
                 var hyperplanningImportService = scope.ServiceProvider.GetRequiredService<IHyperplanningImportService>();
-                await hyperplanningImportService.RunAsync(run!.Id, name => true, week => true);
+                await hyperplanningImportService.RunAsync(run!.Id);
             }
 
             var details = await client.GetFromJsonAsync<ImportDetailsDto>($"{ImportsUrl}/{run.Id}");
@@ -132,6 +132,123 @@ namespace GroupSwitch.Tests.Scraping.Controllers
             var latest = await client.GetFromJsonAsync<List<ImportRunDto>>(ImportsUrl);
             Assert.NotNull(latest);
             Assert.Empty(latest);
+        }
+
+        private async Task RunImportAsync(ApiFactory factory, int importRunId)
+        {
+            using var scope = factory.Services.CreateScope();
+            var hyperplanningImportService = scope.ServiceProvider.GetRequiredService<IHyperplanningImportService>();
+
+            await hyperplanningImportService.RunAsync(importRunId);
+        }
+
+        [Fact]
+        public async Task PostImport_UnknownGroup_ReturnsBadRequestAndStartsNothing()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+
+            var response = await client.PostAsync($"{ImportsUrl}?group=XYZ%209", EmptyBody());
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var latest = await client.GetFromJsonAsync<List<ImportRunDto>>(ImportsUrl);
+            Assert.NotNull(latest);
+            Assert.Empty(latest);
+        }
+
+        [Theory]
+        [InlineData("?firstWeek=0")]
+        [InlineData("?lastWeek=15")]
+        [InlineData("?firstWeek=9&lastWeek=8")]
+        public async Task PostImport_WeeksOutsideTheSettings_ReturnsBadRequest(string queryString)
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+
+            var response = await client.PostAsync($"{ImportsUrl}{queryString}", EmptyBody());
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task PostImport_GroupAndWeeks_ReturnsTheRequestedScope()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+
+            var response = await client.PostAsync($"{ImportsUrl}?group=IODA%20B3&firstWeek=8&lastWeek=11", EmptyBody());
+            var run = await response.Content.ReadFromJsonAsync<ImportRunDto>();
+
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal("IODA B3", run!.RequestedGroupName);
+            Assert.Equal(8, run.FirstWeek);
+            Assert.Equal(11, run.LastWeek);
+        }
+
+        [Fact]
+        public async Task CancelImport_UnknownId_ReturnsNotFound()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+
+            var response = await client.PostAsync($"{ImportsUrl}/999/cancel", EmptyBody());
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task CancelImport_RunningImport_ReturnsAcceptedAndRecordsTheRequest()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+            var started = await client.PostAsync(ImportsUrl, EmptyBody());
+            var run = await started.Content.ReadFromJsonAsync<ImportRunDto>();
+
+            var response = await client.PostAsync($"{ImportsUrl}/{run!.Id}/cancel", EmptyBody());
+            var details = await client.GetFromJsonAsync<ImportDetailsDto>($"{ImportsUrl}/{run.Id}");
+
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.True(details!.Run.CancellationRequested);
+        }
+
+        [Fact]
+        public async Task CancelImport_FinishedImport_ReturnsConflict()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+            var started = await client.PostAsync(ImportsUrl, EmptyBody());
+            var run = await started.Content.ReadFromJsonAsync<ImportRunDto>();
+            await RunImportAsync(factory, run!.Id);
+
+            var response = await client.PostAsync($"{ImportsUrl}/{run.Id}/cancel", EmptyBody());
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task GetImport_AfterTheRun_ShowsSuccessfulAndRejectedWeeks()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+            var started = await client.PostAsync(ImportsUrl, EmptyBody());
+            var run = await started.Content.ReadFromJsonAsync<ImportRunDto>();
+            await RunImportAsync(factory, run!.Id);
+
+            var details = await client.GetFromJsonAsync<ImportDetailsDto>($"{ImportsUrl}/{run.Id}");
+
+            Assert.Equal(3, details!.Run.SuccessfulWeeks);
+            Assert.Equal(0, details.Run.RejectedWeeks);
+        }
+
+        [Fact]
+        public async Task GetGroups_ReturnsTheHyperplanningGroupNames()
+        {
+            using var factory = NewFactory();
+            var client = factory.CreateClient();
+
+            var groupNames = await client.GetFromJsonAsync<List<string>>("/api/Hyperplanning/groups");
+
+            Assert.Equal(new[] { "IODA B3", "SI 3" }, groupNames);
         }
     }
 }

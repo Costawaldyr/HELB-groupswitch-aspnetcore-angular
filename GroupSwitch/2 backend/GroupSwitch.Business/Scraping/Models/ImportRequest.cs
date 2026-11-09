@@ -1,4 +1,4 @@
 ﻿namespace GroupSwitch.Business.Scraping.Models
 {
-    public record ImportRequest(int ImportRunId, string? GroupName);
+    public record ImportRequest(string? GroupName, int? FirstWeek, int? LastWeek);
 }
