@@ -9,6 +9,8 @@ namespace GroupSwitch.Business.Scraping.Services
 {
     public class HyperplanningImportService : IHyperplanningImportService
     {
+        public const int ConsecutiveFailedGroupsLimit = 3;
+
         private static readonly SemaphoreSlim StartLock = new(1, 1);
 
         private readonly IHyperplanningScraper _scraper;
@@ -85,6 +87,13 @@ namespace GroupSwitch.Business.Scraping.Services
             return _importRunRepository.RecoverInterruptedAsync(ImportMessages.Interrupted, ImportLogLevels.Error);
         }
 
+        public Task<bool> FailIfStillRunningAsync(int importRunId, string reason)
+        {
+            var message = string.Format(ImportMessages.UnexpectedFailureFormat, reason);
+
+            return _importRunRepository.FailIfRunningAsync(importRunId, message, ImportLogLevels.Error);
+        }
+
         public async Task RunAsync(int importRunId, CancellationToken cancellationToken = default)
         {
             var run = await _importRunRepository.GetByIdAsync(importRunId);
@@ -104,7 +113,7 @@ namespace GroupSwitch.Business.Scraping.Services
             }
             catch (Exception exception)
             {
-                await _importLogService.ErrorAsync(importRunId, exception.Message);
+                await _importLogService.ErrorAsync(importRunId, exception.GetBaseException().Message);
                 await FinishAsync(importRunId, ImportStatus.Failed, totals);
             }
         }
@@ -118,10 +127,21 @@ namespace GroupSwitch.Business.Scraping.Services
 
             var weeks = new WeekRange(run.FirstWeek.Value, run.LastWeek.Value).Weeks().ToList();
             var groupNames = await GroupNamesToImportAsync(run.RequestedGroupName, cancellationToken);
+            var failedGroupStreak = new FailedGroupStreak();
 
             await foreach (var retrieval in _scraper.ScrapeAsync(groupNames, weeks, cancellationToken))
             {
-                await ImportWeekAsync(run.Id, run.AcademicYear, retrieval, totals, cancellationToken);
+                var assessment = _weekAssessmentService.Assess(retrieval);
+                failedGroupStreak.Add(assessment);
+
+                if (failedGroupStreak.CompletedFailedGroups >= ConsecutiveFailedGroupsLimit)
+                {
+                    await _importLogService.ErrorAsync(run.Id, string.Format(ImportMessages.TooManyFailedGroupsFormat, ConsecutiveFailedGroupsLimit));
+
+                    return ImportStatus.Failed;
+                }
+
+                await ImportWeekAsync(run.Id, run.AcademicYear, retrieval, assessment, totals, cancellationToken);
 
                 if (await _importRunRepository.IsCancellationRequestedAsync(run.Id))
                 {
@@ -134,10 +154,14 @@ namespace GroupSwitch.Business.Scraping.Services
             return FinalStatusOf(totals);
         }
 
-        private async Task ImportWeekAsync(int importRunId, string academicYear, WeekRetrieval retrieval, ImportTotals totals, CancellationToken cancellationToken)
+        private async Task ImportWeekAsync(
+            int importRunId,
+            string academicYear,
+            WeekRetrieval retrieval,
+            WeekAssessment assessment,
+            ImportTotals totals,
+            CancellationToken cancellationToken)
         {
-            var assessment = _weekAssessmentService.Assess(retrieval);
-
             if (assessment.IsAccepted)
             {
                 var sessionCount = await _scheduleRepository.ReplaceWeekAsync(

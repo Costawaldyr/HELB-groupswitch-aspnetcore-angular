@@ -24,5 +24,7 @@ namespace GroupSwitch.Data.Interfaces
         Task<bool> IsCancellationRequestedAsync(int importRunId);
 
         Task<int> RecoverInterruptedAsync(string interruptionMessage, string level);
+
+        Task<bool> FailIfRunningAsync(int importRunId, string failureMessage, string level);
     }
 }

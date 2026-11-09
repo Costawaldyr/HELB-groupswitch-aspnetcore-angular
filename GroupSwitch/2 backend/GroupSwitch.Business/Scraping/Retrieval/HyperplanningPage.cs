@@ -31,6 +31,11 @@ namespace GroupSwitch.Business.Scraping.Retrieval
             await _page.GotoAsync(pageUrl);
         }
 
+        public Task CloseAsync()
+        {
+            return _page.CloseAsync();
+        }
+
         public async Task<string> OpenGroupListAsync(CancellationToken cancellationToken)
         {
             var captured = await WaitForResponseAsync(
@@ -138,7 +143,7 @@ namespace GroupSwitch.Business.Scraping.Retrieval
 
                 return true;
             }
-            catch (PlaywrightException)
+            catch (Exception exception) when (exception is PlaywrightException or System.TimeoutException)
             {
                 return false;
             }

@@ -15,6 +15,7 @@ namespace GroupSwitch.Business.Scraping.Services
         private const string OtherWeekFormat = "La réponse contient des cours de la semaine {0} au lieu de la semaine {1}.";
         private const string OutsideTheGridMessage = "Un cours sort de la grille horaire (position ou durée invalide).";
         private const string MissingSubjectMessage = "Un cours n'a pas de matière.";
+        private const string FieldTooLongFormat = "Champ {0} trop long : {1} caractères (maximum {2}).";
         private const string CompleteFormat = "{0} séances";
         private const string CompleteEmptyMessage = "Semaine vide vérifiée : aucun cours, aucune annulation.";
 
@@ -76,6 +77,13 @@ namespace GroupSwitch.Business.Scraping.Services
                 return Rejected(retrieval, WeekResponseStatus.Invalid, MissingSubjectMessage);
             }
 
+            var tooLongField = parsedSessions.Select(TooLongFieldOf).FirstOrDefault(diagnostic => diagnostic is not null);
+
+            if (tooLongField is not null)
+            {
+                return Rejected(retrieval, WeekResponseStatus.Invalid, tooLongField);
+            }
+
             if (!parsedSessions.Any())
             {
                 return new WeekAssessment(retrieval.GroupName, retrieval.RequestedWeek, WeekResponseStatus.CompleteEmpty, new List<ScheduledSession>(), CompleteEmptyMessage);
@@ -109,6 +117,27 @@ namespace GroupSwitch.Business.Scraping.Services
                 || session.Position >= weekSlotCount
                 || session.DurationInSlots <= 0
                 || slotInDay + session.DurationInSlots > SessionTimeCalculator.SlotsPerDay;
+        }
+
+        private string? TooLongFieldOf(ParsedSession session)
+        {
+            var fields = new[]
+            {
+                (Name: nameof(ParsedSession.Title), Length: session.Title.Length, MaxLength: Activity.TitleMaxLength),
+                (Name: nameof(ParsedSession.Teacher), Length: session.Teacher.Length, MaxLength: ScheduledSession.TeacherMaxLength),
+                (Name: nameof(ParsedSession.Room), Length: session.Room.Length, MaxLength: ScheduledSession.RoomMaxLength),
+                (Name: nameof(ParsedSession.Remark), Length: session.Remark.Length, MaxLength: ScheduledSession.RemarkMaxLength)
+            };
+
+            foreach (var field in fields)
+            {
+                if (field.Length > field.MaxLength)
+                {
+                    return string.Format(FieldTooLongFormat, field.Name, field.Length, field.MaxLength);
+                }
+            }
+
+            return null;
         }
 
         private WeekAssessment Rejected(WeekRetrieval retrieval, WeekResponseStatus status, string diagnostic)

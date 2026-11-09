@@ -32,6 +32,50 @@ namespace GroupSwitch.Tests.Scraping.Retrieval
         }
 
         [Fact]
+        public async Task ScrapeAsync_ThreeGroupsInARow_ReturnsCorrelatedWeeksForEachGroup()
+        {
+            var groupNames = new[] { "ES B1", "ES B2", "SAR Santé" };
+            var weeks = new[] { 8, 11 };
+            var requestParser = new ScheduleRequestParser();
+            var retrievals = new List<WeekRetrieval>();
+
+            await foreach (var retrieval in NewScraper().ScrapeAsync(groupNames, weeks, CancellationToken.None))
+            {
+                retrievals.Add(retrieval);
+                _output.WriteLine($"{retrieval.GroupName} week {retrieval.RequestedWeek} | ok={retrieval.IsSuccessful} | reason={retrieval.FailureReason}");
+            }
+
+            Assert.Equal(groupNames.Length * weeks.Length, retrievals.Count);
+            Assert.All(retrievals, retrieval => Assert.True(retrieval.IsSuccessful, $"{retrieval.GroupName} week {retrieval.RequestedWeek}: {retrieval.FailureReason}"));
+            Assert.All(retrievals, retrieval =>
+            {
+                var request = requestParser.Parse(retrieval.RequestBody);
+
+                Assert.NotNull(request);
+                Assert.Equal(retrieval.GroupName, request.GroupName);
+                Assert.Equal(retrieval.RequestedWeek, request.Week);
+            });
+        }
+
+        [Fact]
+        public async Task ScrapeAsync_WeekAbsentFromTheCalendar_IsReportedAsNotInTheCalendar()
+        {
+            const int AbsentWeek = 60;
+            var retrievals = new List<WeekRetrieval>();
+
+            await foreach (var retrieval in NewScraper().ScrapeAsync(new[] { GroupName }, new[] { 8, AbsentWeek }, CancellationToken.None))
+            {
+                retrievals.Add(retrieval);
+                _output.WriteLine($"week {retrieval.RequestedWeek} | ok={retrieval.IsSuccessful} | reason={retrieval.FailureReason}");
+            }
+
+            var absentWeek = retrievals.Single(retrieval => retrieval.RequestedWeek == AbsentWeek);
+            Assert.True(retrievals.Single(retrieval => retrieval.RequestedWeek == 8).IsSuccessful);
+            Assert.False(absentWeek.IsSuccessful);
+            Assert.Equal("La semaine n'existe pas dans le calendrier.", absentWeek.FailureReason);
+        }
+
+        [Fact]
         public async Task GetGroupNamesAsync_RealSite_ContainsTheGroup()
         {
             var groupNames = await NewScraper().GetGroupNamesAsync(CancellationToken.None);

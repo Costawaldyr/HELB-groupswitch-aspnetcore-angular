@@ -11,9 +11,11 @@ namespace GroupSwitch.Data.Entities
     [Index(nameof(Title), IsUnique = true)]
     public class Activity
     {
+        public const int TitleMaxLength = 300;
+
         public int Id { get; set; }
 
-        [MaxLength(300)]
+        [MaxLength(TitleMaxLength)]
         public string Title { get; set; } = string.Empty;
 
         public List<ScheduledSession> SessionList { get; set; } = new();

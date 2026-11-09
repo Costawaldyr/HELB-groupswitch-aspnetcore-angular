@@ -257,6 +257,115 @@ namespace GroupSwitch.Tests.Scraping.Services
         }
 
         [Fact]
+        public async Task Run_ThreeGroupsInARowFailEntirely_StopsWithFailedAndExplainsWhy()
+        {
+            using var database = new SqliteTestDatabase();
+            var service = NewService(database, new FakeHyperplanningScraper(new List<WeekRetrieval>
+            {
+                WeekRetrieval.Failed("ES B2", 8, "Timeout"),
+                WeekRetrieval.Failed("ES B2", 11, "Timeout"),
+                WeekRetrieval.Failed("ES B3", 8, "Timeout"),
+                WeekRetrieval.Failed("ES B3", 11, "Timeout"),
+                WeekRetrieval.Failed("AS J B1", 8, "Timeout"),
+                WeekRetrieval.Failed("AS J B1", 11, "Timeout"),
+                WeekRetrieval.Succeeded("IODA B3", 8, week8Json)
+            }));
+            var run = await service.StartAsync(allGroupsAllWeeks);
+
+            await service.RunAsync(run.Id);
+
+            var saved = await database._dbContext.ImportRuns
+                .Include(importRun => importRun.LogEntriesList)
+                .SingleAsync(importRun => importRun.Id == run.Id);
+
+            Assert.Equal(ImportStatus.Failed, saved.Status);
+            Assert.Equal(6, saved.RejectedWeeks);
+            Assert.Equal(0, await database.CountSessionsOfGroupAsync("IODA B3"));
+            Assert.Contains(saved.LogEntriesList, entry => entry.Level == ImportLogLevels.Error && entry.Message.Contains("3 groupes de suite"));
+        }
+
+        [Fact]
+        public async Task Run_FailedGroupsSeparatedByASuccessfulGroup_DoNotStopTheImport()
+        {
+            using var database = new SqliteTestDatabase();
+            var service = NewService(database, new FakeHyperplanningScraper(new List<WeekRetrieval>
+            {
+                WeekRetrieval.Failed("ES B2", 8, "Timeout"),
+                WeekRetrieval.Failed("ES B3", 8, "Timeout"),
+                WeekRetrieval.Succeeded("IODA B3", 8, week8Json),
+                WeekRetrieval.Failed("AS J B1", 8, "Timeout"),
+                WeekRetrieval.Failed("AS J B2", 8, "Timeout"),
+                WeekRetrieval.Succeeded("SI 3", 11, week11Json)
+            }));
+            var run = await service.StartAsync(allGroupsAllWeeks);
+
+            await service.RunAsync(run.Id);
+
+            var saved = await database._dbContext.ImportRuns.SingleAsync(importRun => importRun.Id == run.Id);
+            Assert.Equal(ImportStatus.PartiallyCompleted, saved.Status);
+            Assert.Equal(9, await database.CountSessionsOfGroupAsync("IODA B3"));
+            Assert.Equal(15, await database.CountSessionsOfGroupAsync("SI 3"));
+        }
+
+        [Fact]
+        public async Task Run_DatabaseRefusesTheSessions_IsFailedWithAMessageAndFreesTheNextImport()
+        {
+            using var database = new SqliteTestDatabase();
+            await database._dbContext.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER RefuseSessions BEFORE INSERT ON ScheduledSessions BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END;");
+            var service = NewService(database, new FakeHyperplanningScraper(TwoGroupsResponses()));
+            var run = await service.StartAsync(allGroupsAllWeeks);
+
+            await service.RunAsync(run.Id);
+
+            var saved = await database._dbContext.ImportRuns
+                .Include(importRun => importRun.LogEntriesList)
+                .AsNoTracking()
+                .SingleAsync(importRun => importRun.Id == run.Id);
+
+            Assert.Equal(ImportStatus.Failed, saved.Status);
+            Assert.NotNull(saved.FinishedAt);
+            Assert.Contains(saved.LogEntriesList, entry => entry.Level == ImportLogLevels.Error && entry.Message.Contains("forced insert failure"));
+            Assert.Equal(0, await database._dbContext.ScheduledSessions.CountAsync());
+
+            var nextRun = await service.StartAsync(allGroupsAllWeeks);
+            Assert.Equal(ImportStatus.Running, nextRun.Status);
+        }
+
+        [Fact]
+        public async Task FailIfStillRunning_RunningRun_BecomesFailedWithTheReason()
+        {
+            using var database = new SqliteTestDatabase();
+            var service = NewService(database, new FakeHyperplanningScraper(TwoGroupsResponses()));
+            var run = await service.StartAsync(allGroupsAllWeeks);
+
+            var isMarked = await service.FailIfStillRunningAsync(run.Id, "disk full");
+
+            var saved = await database._dbContext.ImportRuns
+                .Include(importRun => importRun.LogEntriesList)
+                .AsNoTracking()
+                .SingleAsync(importRun => importRun.Id == run.Id);
+            Assert.True(isMarked);
+            Assert.Equal(ImportStatus.Failed, saved.Status);
+            Assert.Contains(saved.LogEntriesList, entry => entry.Message.Contains("disk full"));
+        }
+
+        [Fact]
+        public async Task FailIfStillRunning_FinishedRun_IsLeftUnchanged()
+        {
+            using var database = new SqliteTestDatabase();
+            var service = NewService(database, new FakeHyperplanningScraper(TwoGroupsResponses()));
+            var run = await service.StartAsync(allGroupsAllWeeks);
+            await service.RunAsync(run.Id);
+
+            var isMarked = await service.FailIfStillRunningAsync(run.Id, "late failure");
+
+            var saved = await database._dbContext.ImportRuns.AsNoTracking().SingleAsync(importRun => importRun.Id == run.Id);
+            Assert.False(isMarked);
+            Assert.Equal(ImportStatus.Finished, saved.Status);
+        }
+
+        [Fact]
         public async Task Run_NoWeekAccepted_IsFailed()
         {
             using var database = new SqliteTestDatabase();

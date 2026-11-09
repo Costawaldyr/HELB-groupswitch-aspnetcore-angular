@@ -12,6 +12,10 @@ namespace GroupSwitch.Data.Entities
     [Index(nameof(StudentGroupId), nameof(Start))]
     public class ScheduledSession
     {
+        public const int RoomMaxLength = 500;
+        public const int TeacherMaxLength = 500;
+        public const int RemarkMaxLength = 500;
+
         public int Id { get; set; }
 
         public int WeekNumber { get; set; }
@@ -22,13 +26,13 @@ namespace GroupSwitch.Data.Entities
         public DateTime Start { get; set; }
         public DateTime End { get; set; }
 
-        [MaxLength(100)]
+        [MaxLength(RoomMaxLength)]
         public string Room { get; set; } = string.Empty;
 
-        [MaxLength(200)]
+        [MaxLength(TeacherMaxLength)]
         public string Teacher { get; set; } = string.Empty;
 
-        [MaxLength(500)]
+        [MaxLength(RemarkMaxLength)]
         public string Remark { get; set; } = string.Empty;
 
         public bool IsCancelled { get; set; }

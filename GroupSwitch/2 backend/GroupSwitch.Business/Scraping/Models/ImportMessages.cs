@@ -9,6 +9,8 @@ namespace GroupSwitch.Business.Scraping.Models
         public const string Cancelled = "Import annulé à la demande.";
         public const string Shutdown = "Import interrompu : arrêt de l'application.";
         public const string Interrupted = "Import interrompu : l'application a redémarré pendant l'import.";
+        public const string TooManyFailedGroupsFormat = "Import arrêté : {0} groupes de suite sans aucune semaine récupérée (site indisponible ou page dans un état inattendu).";
+        public const string UnexpectedFailureFormat = "Import arrêté sur une erreur inattendue : {0}";
         public const string MissingScope = "L'import n'indique pas d'année académique ou de semaines.";
     }
 }

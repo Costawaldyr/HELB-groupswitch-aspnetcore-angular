@@ -16,6 +16,7 @@ namespace GroupSwitch.Business.Scraping.Retrieval
         private const char LineSeparator = '\n';
 
         private readonly ResponseClassifier _classifier = new();
+        private readonly FailedWeekRetrier _failedWeekRetrier = new();
         private readonly HyperplanningSettings _settings;
         private readonly IGroupListParser _groupListParser;
 
@@ -45,15 +46,25 @@ namespace GroupSwitch.Business.Scraping.Retrieval
 
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await LaunchBrowserAsync(playwright);
-            var hyperplanningPage = await OpenPageAsync(browser);
-
-            await hyperplanningPage.OpenGroupListAsync(cancellationToken);
+            var hyperplanningPage = await OpenReadyPageAsync(browser, cancellationToken);
 
             foreach (var groupName in groupNames)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var retrievals = await RetrieveGroupAsync(hyperplanningPage, groupName, sortedWeeks, cancellationToken);
+
+                retrievals = await _failedWeekRetrier.RetryAsync(retrievals, IsRetryable, async weeksToRetry =>
+                {
+                    hyperplanningPage = await RenewPageAsync(browser, hyperplanningPage, cancellationToken);
+
+                    return await RetrieveGroupAsync(hyperplanningPage, groupName, weeksToRetry, cancellationToken);
+                });
+
+                if (retrievals.All(retrieval => !retrieval.IsSuccessful))
+                {
+                    hyperplanningPage = await RenewPageAsync(browser, hyperplanningPage, cancellationToken);
+                }
 
                 foreach (var retrieval in retrievals)
                 {
@@ -76,6 +87,26 @@ namespace GroupSwitch.Business.Scraping.Retrieval
             await hyperplanningPage.OpenAsync(_settings.PageUrl);
 
             return hyperplanningPage;
+        }
+
+        private async Task<HyperplanningPage> OpenReadyPageAsync(IBrowser browser, CancellationToken cancellationToken)
+        {
+            var hyperplanningPage = await OpenPageAsync(browser);
+            await hyperplanningPage.OpenGroupListAsync(cancellationToken);
+
+            return hyperplanningPage;
+        }
+
+        private async Task<HyperplanningPage> RenewPageAsync(IBrowser browser, HyperplanningPage currentPage, CancellationToken cancellationToken)
+        {
+            await currentPage.CloseAsync();
+
+            return await OpenReadyPageAsync(browser, cancellationToken);
+        }
+
+        private bool IsRetryable(WeekRetrieval retrieval)
+        {
+            return retrieval.FailureReason != WeekNotInCalendarMessage;
         }
 
         private async Task<List<WeekRetrieval>> RetrieveGroupAsync(

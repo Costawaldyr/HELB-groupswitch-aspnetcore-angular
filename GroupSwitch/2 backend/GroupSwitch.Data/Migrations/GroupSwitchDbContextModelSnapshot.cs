@@ -189,8 +189,8 @@ namespace GroupSwitch.Data.Migrations
 
                     b.Property<string>("Room")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<DateTime>("Start")
                         .HasColumnType("datetime2");
@@ -200,8 +200,8 @@ namespace GroupSwitch.Data.Migrations
 
                     b.Property<string>("Teacher")
                         .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<int>("WeekNumber")
                         .HasColumnType("int");

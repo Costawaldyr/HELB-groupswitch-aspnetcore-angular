@@ -9,6 +9,7 @@ namespace GroupSwitch.Api.BackgroundServices
         private const string RecoveredFormat = "{0} import(s) marqué(s) Interrupted au démarrage.";
         private const string ImportFailedFormat = "L'import {0} s'est arrêté sur une erreur inattendue.";
         private const string DequeueFailedMessage = "Lecture de la file d'imports impossible.";
+        private const string MarkFailedFailedFormat = "Impossible de marquer l'import {0} en Failed.";
 
         private readonly IImportQueueService _importQueueService;
         private readonly IServiceScopeFactory _scopeFactory;
@@ -75,6 +76,22 @@ namespace GroupSwitch.Api.BackgroundServices
             catch (Exception exception)
             {
                 _logger.LogError(exception, ImportFailedFormat, queuedImport.ImportRunId);
+                await MarkFailedIfStillRunningAsync(queuedImport.ImportRunId, exception);
+            }
+        }
+
+        private async Task MarkFailedIfStillRunningAsync(int importRunId, Exception failure)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var hyperplanningImportService = scope.ServiceProvider.GetRequiredService<IHyperplanningImportService>();
+
+                await hyperplanningImportService.FailIfStillRunningAsync(importRunId, failure.GetBaseException().Message);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, MarkFailedFailedFormat, importRunId);
             }
         }
     }

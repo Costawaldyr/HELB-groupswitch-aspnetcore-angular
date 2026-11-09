@@ -37,6 +37,26 @@ namespace GroupSwitch.Data.Repositories
                 throw new ArgumentException(SessionWithoutActivityMessage);
             }
 
+            try
+            {
+                return await ReplaceInTransactionAsync(groupName, academicYear, week, newSessions, importRunId, retrievedAtUtc, cancellationToken);
+            }
+            catch
+            {
+                _dbContext.ChangeTracker.Clear();
+                throw;
+            }
+        }
+
+        private async Task<int> ReplaceInTransactionAsync(
+            string groupName,
+            string academicYear,
+            int week,
+            List<ScheduledSession> newSessions,
+            int importRunId,
+            DateTime retrievedAtUtc,
+            CancellationToken cancellationToken)
+        {
             using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
             var group = await FindOrCreateGroupAsync(groupName, cancellationToken);

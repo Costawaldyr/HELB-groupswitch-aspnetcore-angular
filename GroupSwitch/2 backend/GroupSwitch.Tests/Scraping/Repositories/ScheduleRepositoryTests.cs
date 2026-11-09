@@ -259,6 +259,22 @@ namespace GroupSwitch.Tests.Scraping.Repositories
         }
 
         [Fact]
+        public async Task ReplaceWeek_SaveFails_KeepsOldSessionsAndLeavesNothingTracked()
+        {
+            using var database = new SqliteTestDatabase();
+            var repository = new ScheduleRepository(database._dbContext);
+            await ReplaceAsync(repository, IodaGroup, FirstWeek, NewSession("Projets II", FirstWeek, 3));
+            await database._dbContext.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER RefuseSessions BEFORE INSERT ON ScheduledSessions BEGIN SELECT RAISE(ABORT, 'forced insert failure'); END;");
+
+            await Assert.ThrowsAsync<DbUpdateException>(() => ReplaceAsync(repository, IodaGroup, FirstWeek, NewSession("Projet ERP", FirstWeek, 4)));
+
+            Assert.Empty(database._dbContext.ChangeTracker.Entries());
+            Assert.Equal(1, await database.CountSessionsOfGroupAsync(IodaGroup));
+            Assert.Equal(1, (await database._dbContext.ScheduleCoverages.AsNoTracking().SingleAsync()).SessionCount);
+        }
+
+        [Fact]
         public async Task GetCoverages_ReturnsOnlyTheRequestedGroupYearAndWeeks()
         {
             using var database = new SqliteTestDatabase();

@@ -1,4 +1,5 @@
 using GroupSwitch.Business.Scraping.Models;
+using GroupSwitch.Data.Entities;
 using GroupSwitch.Tests.Scraping.TestSupport;
 
 namespace GroupSwitch.Tests.Scraping.Services
@@ -162,6 +163,50 @@ namespace GroupSwitch.Tests.Scraping.Services
             var assessment = Assess(WeekRetrieval.Succeeded(GroupName, 8, OneCourseJson(8, 116, 4, string.Empty)));
 
             Assert.Equal(WeekResponseStatus.Invalid, assessment.Status);
+        }
+
+        private string CourseWithFieldsJson(string teacher, string room)
+        {
+            var json = "{'nom':'FonctionEmploiDuTemps','donneesSec':{'donnees':{'ListeCours':[{'G':8,'p':116,'d':4,"
+                + "'listeC':[{'G':0,'C':{'L':'Projets II'}},{'G':1,'C':[{'L':'" + teacher + "'}]},{'G':3,'C':[{'L':'" + room + "'}]}]}],"
+                + "'ListeAnnulationsCours':[]}}}";
+
+            return json.Replace('\'', '"');
+        }
+
+        [Fact]
+        public void Assess_RoomLongerThanItsColumn_IsInvalidAndNamesTheField()
+        {
+            var tooLongRoom = new string('R', ScheduledSession.RoomMaxLength + 1);
+
+            var assessment = Assess(WeekRetrieval.Succeeded(GroupName, 8, CourseWithFieldsJson("MEDOL", tooLongRoom)));
+
+            Assert.Equal(WeekResponseStatus.Invalid, assessment.Status);
+            Assert.Empty(assessment.Sessions);
+            Assert.Contains("Room", assessment.Diagnostic);
+            Assert.Contains((ScheduledSession.RoomMaxLength + 1).ToString(), assessment.Diagnostic);
+        }
+
+        [Fact]
+        public void Assess_TeacherLongerThanItsColumn_IsInvalid()
+        {
+            var tooLongTeacher = new string('T', ScheduledSession.TeacherMaxLength + 1);
+
+            var assessment = Assess(WeekRetrieval.Succeeded(GroupName, 8, CourseWithFieldsJson(tooLongTeacher, "2106")));
+
+            Assert.Equal(WeekResponseStatus.Invalid, assessment.Status);
+            Assert.Contains("Teacher", assessment.Diagnostic);
+        }
+
+        [Fact]
+        public void Assess_RoomExactlyAtItsLimit_IsCompleteAndNotTruncated()
+        {
+            var longestRoom = new string('R', ScheduledSession.RoomMaxLength);
+
+            var assessment = Assess(WeekRetrieval.Succeeded(GroupName, 8, CourseWithFieldsJson("MEDOL", longestRoom)));
+
+            Assert.Equal(WeekResponseStatus.Complete, assessment.Status);
+            Assert.Equal(longestRoom, Assert.Single(assessment.Sessions).Room);
         }
 
         [Fact]

@@ -12,5 +12,6 @@ namespace GroupSwitch.Business.Scraping.Interfaces
         Task<IReadOnlyList<string>> GetGroupNamesAsync(CancellationToken cancellationToken = default);
         Task<bool> RequestCancellationAsync(int importRunId);
         Task<int> RecoverInterruptedAsync();
+        Task<bool> FailIfStillRunningAsync(int importRunId, string reason);
     }
 }

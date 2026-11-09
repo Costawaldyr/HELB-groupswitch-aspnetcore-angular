@@ -143,6 +143,29 @@ namespace GroupSwitch.Data.Repositories
             return runningRuns.Count;
         }
 
+        public async Task<bool> FailIfRunningAsync(int importRunId, string failureMessage, string level)
+        {
+            var run = await _dbContext.ImportRuns.FirstOrDefaultAsync(importRun => importRun.Id == importRunId);
+
+            if (run is null || run.Status != ImportStatus.Running)
+            {
+                return false;
+            }
+
+            run.Status = ImportStatus.Failed;
+            run.FinishedAt = DateTime.Now;
+            run.LogEntriesList.Add(new ImportLogEntry
+            {
+                Moment = DateTime.Now,
+                Level = level,
+                Message = Shorten(failureMessage)
+            });
+
+            await _dbContext.SaveChangesAsync();
+
+            return true;
+        }
+
         private string Shorten(string message)
         {
             return message.Length <= ImportLogEntry.MessageMaxLength ? message : message.Substring(0, ImportLogEntry.MessageMaxLength);
